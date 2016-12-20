@@ -59,15 +59,16 @@ trait Rules {
     val choices = rules.toList
   }
 
-  def ruleWithName[In, Out, A, X](_name: String, f: In => Result[Out, A, X]): Rule[In, Out, A, X] with Name =
-    new DefaultRule(f) with Name {
-      val name = _name
-    }
+  def ruleWithName[In, Out, A, X](_name: String, f: In => Result[Out, A, X]): Rule[In, Out, A, X] & Name =
+    new DefaultRuleWithName(f, _name)
 
   class DefaultRule[In, Out, A, X](f: In => Result[Out, A, X]) extends Rule[In, Out, A, X] {
     val factory = Rules.this
     def apply(in: In) = f(in)
   }
+
+  class DefaultRuleWithName[In, Out, A, X](f: In => Result[Out, A, X], val name: String)
+    extends DefaultRule[In, Out, A, X](f) with Name
 
  /** Converts a rule into a function that throws an Exception on failure. */
   def expect[In, Out, A, Any](rule: Rule[In, Out, A, Any]): In => A = (in) => rule(in) match {

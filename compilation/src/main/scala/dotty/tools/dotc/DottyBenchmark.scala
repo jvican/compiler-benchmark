@@ -38,6 +38,8 @@ class DottyBenchmark {
     ctx.setSetting(ctx.settings.usejavacp, true)
     ctx.setSetting(ctx.settings.d, tempOutDir.getAbsolutePath)
     ctx.setSetting(ctx.settings.nowarn, true)
+    if (source == "scalap")
+      ctx.setSetting(ctx.settings.language, List("Scala2"))
     val reporter = Bench.doCompile(new Compiler, compilerArgs.toList)
     assert(!reporter.hasErrors)
   }
