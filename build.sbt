@@ -3,36 +3,44 @@ name := """compiler-benchmark"""
 version := "1.0-SNAPSHOT"
 
 scalaVersion in ThisBuild := "2.11.8"
+val dottyVersion = settingKey[String]("Dotty version to be benchmarked.")
 
-// Convenient access to builds from PR validation
-resolvers ++= (
-  if (scalaVersion.value.endsWith("-SNAPSHOT"))
-    List(
-      "pr-scala snapshots old" at "http://private-repo.typesafe.com/typesafe/scala-pr-validation-snapshots/",
-      "pr-scala snapshots" at "https://scala-ci.typesafe.com/artifactory/scala-pr-validation-snapshots/",
-      Resolver.mavenLocal,
-      Resolver.sonatypeRepo("snapshots")
+val compilation = project
+  .enablePlugins(JmhPlugin)
+  .settings(
+    // We should be able to switch this project to a broad range of Scala versions for comparative
+    // benchmarking. As such, this project should only depend on the high level `MainClass` compiler API.
+    description := "Black box benchmark of the compiler",
+    scalaVersion := "2.11.5",
+    dottyVersion := "0.1-20161216-ee5dd32-NIGHTLY",
+    libraryDependencies += "ch.epfl.lamp" % "dotty-compiler_2.11" % dottyVersion.value,
+    libraryDependencies += "ch.epfl.lamp" % "dotty-library_2.11" % dottyVersion.value,
+    libraryDependencies +=
+      ScalaArtifacts.Organization % ScalaArtifacts.LibraryID % "2.11.5",
+    // Convenient access to builds from PR validation
+    resolvers ++= (
+      if (dottyVersion.value.endsWith("-SNAPSHOT"))
+        List(
+          Resolver.mavenLocal,
+          Resolver.sonatypeRepo("snapshots")
+        )
+      else List(Resolver.mavenLocal)
     )
-  else
-    Nil
-)
+  )
 
-val compilation = project.enablePlugins(JmhPlugin).settings(
-  // We should be able to switch this project to a broad range of Scala versions for comparative
-  // benchmarking. As such, this project should only depend on the high level `MainClass` compiler API.
-  description := "Black box benchmark of the compiler",
-  libraryDependencies += "org.scala-lang" % "scala-compiler" % scalaVersion.value
-)
+val micro = project
+  .enablePlugins(JmhPlugin)
+  .settings(
+    description := "Finer grained benchmarks of compiler internals",
+    libraryDependencies += "org.scala-lang" % "scala-compiler" % scalaVersion.value
+  )
 
-val micro = project.enablePlugins(JmhPlugin).settings(
-  description := "Finer grained benchmarks of compiler internals",
-  libraryDependencies += "org.scala-lang" % "scala-compiler" % scalaVersion.value
-)
-
-val jvm = project.enablePlugins(JmhPlugin).settings(
-  description := "Pure Java benchmarks for demonstrating performance anomalies independent from the Scala language/library",
-  autoScalaLibrary := false
-)
+val jvm = project
+  .enablePlugins(JmhPlugin)
+  .settings(
+    description := "Pure Java benchmarks for demonstrating performance anomalies independent from the Scala language/library",
+    autoScalaLibrary := false
+  )
 
 val ui = project.settings(
   scalaVersion := "2.11.8",
@@ -46,34 +54,36 @@ val runBatchBenches = settingKey[Seq[(sbt.Project, String)]]("Benchmarks")
 val runBatchSources = settingKey[Seq[String]]("Sources")
 
 runBatchVersions := List(
-  "2.11.8",
-  "2.12.0-M5",
-  "2.12.0-RC1"
+  "0.1-20161216-ee5dd32-NIGHTLY"
 )
 
 runBatchBenches := List(
-  (compilation, "ColdScalacBenchmark"),
-  (compilation, "HotScalacBenchmark")
+  (compilation, "ColdDottyBenchmark"),
+  (compilation, "HotDottyBenchmark")
 )
 
 runBatchSources := List(
-  "scalap",
+  //"scalap",
   "better-files"
 )
 
 def setVersion(s: State, proj: sbt.Project, newVersion: String): State = {
   val extracted = Project.extract(s)
   import extracted._
-  if (get(scalaVersion in proj) == newVersion) s
+  if (get(dottyVersion in proj) == newVersion) s
   else {
-    val append = Load.transformSettings(Load.projectScope(currentRef), currentRef.build, rootProject, (scalaVersion in proj := newVersion) :: Nil)
+    val append = Load.transformSettings(
+      Load.projectScope(currentRef),
+      currentRef.build,
+      rootProject,
+      (dottyVersion in proj := newVersion) :: Nil)
     val newSession = session.appendSettings(append map (a => (a, Nil)))
     s.log.info(s"Switching to Scala version $newVersion")
     BuiltinCommands.reapply(newSession, structure, s)
   }
 }
 
-commands += Command.args("runBatch", ""){ (s: State, args: Seq[String]) =>
+commands += Command.args("runBatch", "") { (s: State, args: Seq[String]) =>
   val targetDir = target.value
   val outFile = targetDir / "combined.csv"
 
@@ -83,18 +93,33 @@ commands += Command.args("runBatch", ""){ (s: State, args: Seq[String]) =>
     (sub, b) <- runBatchBenches.value
     v <- runBatchVersions.value
   } yield {
-    val argLine = s" -p _scalaVersion=$v $b ${args.mkString(" ")} ${p._2} -rf csv -rff $targetDir/${p._1}-$b-$v.csv"
-    println(argLine)
+    import ScalaArtifacts._
+    val scalaLibrary = Organization % LibraryID % "2.11.5"
+    val dottyLibrary = "ch.epfl.lamp" % "dotty-library_2.11" % v
+    val ioArgs = s"-rf csv -rff $targetDir/${p._1}-$b-$v.csv"
+    val argLine = s"$b ${p._2} $ioArgs"
 
-    (s1: State) => {
-      val s2 = setVersion(s1, sub, v)
-      val extracted = Project.extract(s2)
-      val (s3, _) = extracted.runInputTask(run in sub in Jmh, argLine, s2)
-      s3
-    }
+    (s1: State) =>
+      {
+        val s2 = setVersion(s1, sub, v)
+        val extracted = Project.extract(s2)
+        val (s3, cp) = extracted.runTask(fullClasspath in sub in Jmh, s2)
+        val cpFiles = cp.files
+        val dottyArt = cpFiles.filter(_.getName.contains(dottyLibrary.name))
+        val scalaArt = cpFiles.filter(_.getName.contains(scalaLibrary.name))
+        val classpath = (dottyArt ++ scalaArt).mkString(":")
+        val cargs = s" -p _classpath=$classpath $argLine"
+        val (s4, _) = extracted.runInputTask(run in sub in Jmh, cargs, s3)
+        s4
+      }
   }
   tasks.foldLeft(s)((state: State, fun: (State => State)) => {
     val newState = fun(state)
-    Project.extract(newState).runInputTask(runMain in ui in Compile, " compilerbenchmark.PlotData", newState)._1
+    Project
+      .extract(newState)
+      .runInputTask(runMain in ui in Compile,
+                    " compilerbenchmark.PlotData",
+                    newState)
+      ._1
   })
 }

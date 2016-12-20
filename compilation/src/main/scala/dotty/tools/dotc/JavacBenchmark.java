@@ -1,4 +1,4 @@
-package scala.tools.nsc;
+package dotty.tools.dotc;
 
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Scope;
@@ -7,15 +7,10 @@ import org.openjdk.jmh.annotations.State;
 
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 @State(Scope.Thread)
 public class JavacBenchmark {
