@@ -14,6 +14,8 @@ class DottyBenchmark {
   @Param(value = Array[String]())
   var _classpath: String = _
   @Param(value = Array[String]())
+  var _dottyVersion: String = _
+  @Param(value = Array[String]())
   var source: String = _
   @Param(value = Array(""))
   var extraArgs: String = _

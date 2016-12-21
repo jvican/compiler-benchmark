@@ -54,7 +54,8 @@ val runBatchBenches = settingKey[Seq[(sbt.Project, String)]]("Benchmarks")
 val runBatchSources = settingKey[Seq[String]]("Sources")
 
 runBatchVersions := List(
-  "0.1-20161216-ee5dd32-NIGHTLY"
+  "0.1-20161216-ee5dd32-NIGHTLY",
+  "0.1-SNAPSHOT"
 )
 
 runBatchBenches := List(
@@ -64,7 +65,8 @@ runBatchBenches := List(
 
 runBatchSources := List(
   //"scalap",
-  "better-files"
+  "better-files",
+  "squants"
 )
 
 def setVersion(s: State, proj: sbt.Project, newVersion: String): State = {
@@ -108,7 +110,7 @@ commands += Command.args("runBatch", "") { (s: State, args: Seq[String]) =>
         val dottyArt = cpFiles.filter(_.getName.contains(dottyLibrary.name))
         val scalaArt = cpFiles.filter(_.getName.contains(scalaLibrary.name))
         val classpath = (dottyArt ++ scalaArt).mkString(":")
-        val cargs = s" -p _classpath=$classpath $argLine"
+        val cargs = s" -p _classpath=$classpath $argLine -p _dottyVersion=$v"
         val (s4, _) = extracted.runInputTask(run in sub in Jmh, cargs, s3)
         s4
       }
